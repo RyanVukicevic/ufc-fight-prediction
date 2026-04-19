@@ -1,0 +1,10 @@
+
+
+inference on prev events for display
+
+real database with predictions
+    scrape for if event happenned, and make/update col for if it was right
+
+elo system
+try mlp
+
