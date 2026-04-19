@@ -10,14 +10,11 @@ The pipeline:
 - Performs inference on upcoming fights
 
 ## How to Run
+pip install -r requirements.txt
+python -m src.main
 
 ### Install dependencies
 pip install -r requirements.txt
-
-### Train model and  Run inference on upcoming fights
-Either run main.py with python -m src.main 
-Or run the demo.ipynb notebook
-All useful information is included in the print statements for both
 
 ## Data
 - Data is scraped dynamically from http://ufcstats.com
