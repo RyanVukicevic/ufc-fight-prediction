@@ -13,9 +13,6 @@ The pipeline:
 pip install -r requirements.txt
 python -m src.main
 
-### Install dependencies
-pip install -r requirements.txt
-
 ## Data
 - Data is scraped dynamically from http://ufcstats.com
 - No local dataset is required
