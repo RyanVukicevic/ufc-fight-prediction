@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 env/
+src/elo.py
+src/clean_data_with_elo
+log.txt
