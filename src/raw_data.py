@@ -1,5 +1,7 @@
 
 
+#importing data from a certain github user's scrape of ufc stats website
+
 import pandas as pd
 import numpy as np
 

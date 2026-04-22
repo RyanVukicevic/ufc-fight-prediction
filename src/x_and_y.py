@@ -35,15 +35,10 @@ def get_x_and_y(full_sym: pd.DataFrame):
 
 
     delta_cols = [c for c in df.columns if c.startswith("delta_")]
-    base_cols = [c for c in ["date", "ppv", "scheduled_rounds", "weightclass"] if c in df.columns]
+    base_cols = [c for c in ["date", "ppv", "scheduled_rounds"] if c in df.columns]
 
     X = df[base_cols + delta_cols].copy()
     y = df["y"].astype(int)
-
-    # one-hot weightclass if included
-    if "weightclass" in X.columns:
-        X = pd.get_dummies(X, columns=["weightclass"], drop_first=True)
-
 
     bool_cols = X.select_dtypes(include=["bool"]).columns
     X[bool_cols] = X[bool_cols].astype(int)

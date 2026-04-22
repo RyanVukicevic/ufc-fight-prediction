@@ -1,0 +1,16 @@
+
+
+train versions of model w subset of features, track those features, and see if it does better
+
+clean up inference on prev events for display and do analytics like accuracy per event, store it
+    then implement same functionality for upcoming events now, bc stored in a df, could
+    run a check to see if the event it was from is now past, then mark if correct 
+
+
+real database with predictions
+    scrape for if event happenned, and make/update col for if it was right
+
+try mlp
+
+
+

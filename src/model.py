@@ -1,3 +1,8 @@
+
+#this file stores all functions where the models are trained and evaluated initially
+#i say initially because files like cv.py exist, as it is another file that evaluates, for example
+
+
 import numpy as np
 import pandas as pd
 
@@ -7,6 +12,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import HistGradientBoostingClassifier
+
+
+def make_logreg_pipeline():
+    model = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(max_iter=5000, n_jobs=None, random_state=42))
+    ])
+    return model
 
 
 def evaluate_binary_classifier(model, x_train, y_train, x_test, y_test):
@@ -28,11 +42,8 @@ def evaluate_binary_classifier(model, x_train, y_train, x_test, y_test):
 
 
 def print_metrics(model_name_str, model, metrics):
-    
     print(f"{model_name_str}:\n")
-
     print(model)
-
     print("\ntrain accuracy:", metrics["train_accuracy"])
     print("test  accuracy:", metrics["test_accuracy"])
     print("train roc_auc:", metrics["train_auc"])
@@ -46,16 +57,11 @@ def train_logreg(xy_splits: dict):
     y_train = xy_splits["y_train"].copy()
     y_test = xy_splits["y_test"].copy()
 
-    model = Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(max_iter=5000, n_jobs=None))
-    ])
+    model = make_logreg_pipeline()
 
     model.fit(x_train, y_train)
 
     metrics = evaluate_binary_classifier(model, x_train, y_train, x_test, y_test)
-    # print_metrics("logreg", metrics)
 
     return model, metrics
 
@@ -81,6 +87,5 @@ def train_boosted(xy_splits: dict):
     model.fit(x_train, y_train)
 
     metrics = evaluate_binary_classifier(model, x_train, y_train, x_test, y_test)
-    # print_metrics("boosted", metrics)
 
     return model, metrics

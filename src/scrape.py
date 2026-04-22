@@ -1,4 +1,11 @@
 
+
+#as of now this file serves to hold all functions aiding and making the scraping of upcoming events 
+#and their fights possible
+
+#might be adapted to do past events in future
+
+
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup

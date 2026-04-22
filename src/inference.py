@@ -1,10 +1,42 @@
 
+
+#this file stores all of the functions used in inference, so when i scrape upcoming cards and 
+#extract all upcoming fights, the functions here transform the scraped names by matching them to those
+#in the existing database (collection of dataframes), compute their stats and therefore deltas (difference)
+#all for prediction
+
 import pandas as pd
 
 
-def get_latest_snapshot(fighter_name, fight_date, fighters, fighter_stats):
+NAME_ALIASES = {
+    "Waldo Cortes Acosta": "Waldo Cortes-Acosta",
+    "Zach Reese": "Zachary Reese",
+    "Shem Rock": "Shaqueme Rock",
+    "Michael Aswell Jr.": "Michael Aswell",
+    "Rafael Cerquiera": "Rafael Cerqueira",
+    "Benjamin Johnston": "Benjamin Donovan Johnston",
+}
+
+
+def normalize_fighter_name(fighter_name):
+    return NAME_ALIASES.get(fighter_name, fighter_name)
+
+
+def get_fighter_url(fighter_name, fighters):
+    fighter_name = normalize_fighter_name(fighter_name)
     name_to_url = fighters.set_index("fighter")["fighter_url"].to_dict()
-    fighter_url = name_to_url.get(fighter_name)
+    return name_to_url.get(fighter_name)
+
+
+def fighter_has_any_snapshot(fighter_name, fighters, fighter_stats):
+    fighter_url = get_fighter_url(fighter_name, fighters)
+    if fighter_url is None:
+        return False
+    return fighter_stats["fighter_url"].eq(fighter_url).any()
+
+
+def get_latest_snapshot(fighter_name, fight_date, fighters, fighter_stats):
+    fighter_url = get_fighter_url(fighter_name, fighters)
 
     if fighter_url is None:
         return None
@@ -21,6 +53,7 @@ def get_latest_snapshot(fighter_name, fight_date, fighters, fighter_stats):
 
 
 def get_fighter_dob(fighter_name, fighters):
+    fighter_name = normalize_fighter_name(fighter_name)
     row = fighters[fighters["fighter"] == fighter_name]
     if row.empty:
         return None
@@ -55,6 +88,11 @@ def infer_scheduled_rounds(fight_idx):
     return 5 if fight_idx == 0 else 3
 
 
+def add_optional_delta(row, feature_name, a, b):
+    if feature_name in a.index and feature_name in b.index:
+        row[f"delta_{feature_name}"] = a[feature_name] - b[feature_name]
+
+
 def build_upcoming_feature_row(
     fighter_a,
     fighter_b,
@@ -64,6 +102,9 @@ def build_upcoming_feature_row(
     fighters,
     fighter_stats
 ):
+    fighter_a = normalize_fighter_name(fighter_a)
+    fighter_b = normalize_fighter_name(fighter_b)
+
     a = get_latest_snapshot(fighter_a, fight_date, fighters, fighter_stats)
     b = get_latest_snapshot(fighter_b, fight_date, fighters, fighter_stats)
 
@@ -106,12 +147,18 @@ def build_upcoming_feature_row(
         "delta_wins_entering": a["wins_entering"] - b["wins_entering"],
     }
 
+    for feature_name in ["elo_pre", "elo_change_last_3", "elo_fights"]:
+        add_optional_delta(row, feature_name, a, b)
+
     return row
 
 
 def make_inference_matrix(row, x_columns):
     x_one = pd.DataFrame([row])
-    x_one = pd.get_dummies(x_one, columns=["weightclass"], drop_first=True)
+    if "weightclass" in x_one.columns and any(c.startswith("weightclass_") for c in x_columns):
+        x_one = pd.get_dummies(x_one, columns=["weightclass"], drop_first=True)
+    else:
+        x_one = x_one.drop(columns=["weightclass"], errors="ignore")
     x_one = x_one.reindex(columns=x_columns, fill_value=0)
     return x_one
 
@@ -126,9 +173,12 @@ def predict_one_fight(
     model,
     x_columns
 ):
+    fighter_a_model_name = normalize_fighter_name(fighter_a)
+    fighter_b_model_name = normalize_fighter_name(fighter_b)
+
     row = build_upcoming_feature_row(
-        fighter_a,
-        fighter_b,
+        fighter_a_model_name,
+        fighter_b_model_name,
         fight_date,
         event_name,
         fight_idx,
@@ -239,6 +289,107 @@ def predictions_to_df(predictions):
                 "prob_fighter_a_wins": pred["prob_fighter_a_wins"],
                 "prob_fighter_b_wins": pred["prob_fighter_b_wins"],
                 "predicted_winner": pred["predicted_winner"],
+            })
+
+    return pd.DataFrame(rows)
+
+
+def diagnose_unpredictable_fights(events_final, cleaned):
+    rows = []
+    fighters = cleaned["fighters"]
+    fighter_stats = cleaned["fighter_stats"]
+
+    for event in events_final:
+        event_name = event["name"]
+        event_date = event["date"]
+
+        for fight_idx, fight in enumerate(event["fights"]):
+            fighter_a = fight["fighter_a"]
+            fighter_b = fight["fighter_b"]
+            fighter_a_model_name = normalize_fighter_name(fighter_a)
+            fighter_b_model_name = normalize_fighter_name(fighter_b)
+
+            a_url = get_fighter_url(fighter_a_model_name, fighters)
+            b_url = get_fighter_url(fighter_b_model_name, fighters)
+            a_has_any_snapshot = fighter_has_any_snapshot(fighter_a_model_name, fighters, fighter_stats)
+            b_has_any_snapshot = fighter_has_any_snapshot(fighter_b_model_name, fighters, fighter_stats)
+            a_no_model_history = a_url is not None and not a_has_any_snapshot
+            b_no_model_history = b_url is not None and not b_has_any_snapshot
+
+            a_snapshot = (
+                None if a_url is None
+                else get_latest_snapshot(fighter_a_model_name, event_date, fighters, fighter_stats)
+            )
+            b_snapshot = (
+                None if b_url is None
+                else get_latest_snapshot(fighter_b_model_name, event_date, fighters, fighter_stats)
+            )
+
+            if a_snapshot is not None and b_snapshot is not None:
+                continue
+
+            missing = []
+            a_issue = None
+            b_issue = None
+
+            if a_url is None:
+                a_issue = "not_in_fighters_table"
+                missing.append(f"{fighter_a}: not in fighters table")
+            elif a_no_model_history:
+                a_issue = "profile_exists_no_cleaned_fights"
+                missing.append(f"{fighter_a}: profile exists but has no eligible cleaned fight history")
+            elif a_snapshot is None:
+                a_issue = "no_prior_eligible_snapshot"
+                missing.append(f"{fighter_a}: no prior eligible fight snapshot")
+
+            if b_url is None:
+                b_issue = "not_in_fighters_table"
+                missing.append(f"{fighter_b}: not in fighters table")
+            elif b_no_model_history:
+                b_issue = "profile_exists_no_cleaned_fights"
+                missing.append(f"{fighter_b}: profile exists but has no eligible cleaned fight history")
+            elif b_snapshot is None:
+                b_issue = "no_prior_eligible_snapshot"
+                missing.append(f"{fighter_b}: no prior eligible fight snapshot")
+
+            needs_name_or_data_fix = a_url is None or b_url is None
+            has_no_model_history = a_no_model_history or b_no_model_history
+            if needs_name_or_data_fix:
+                action_needed = "check_alias_or_update_fighter_table"
+            elif has_no_model_history:
+                action_needed = "profile_exists_no_model_history"
+            else:
+                action_needed = "check_filtered_or_date_ordered_history"
+
+            generic_issues = sorted({
+                issue for issue in [a_issue, b_issue]
+                if issue is not None
+            })
+            generic_reason = "; ".join(generic_issues)
+
+            rows.append({
+                "event": event_name,
+                "date": event_date,
+                "fight_idx": fight_idx,
+                "fighter_a": fighter_a,
+                "fighter_b": fighter_b,
+                "fighter_a_model_name": fighter_a_model_name,
+                "fighter_b_model_name": fighter_b_model_name,
+                "fighter_a_alias_applied": fighter_a != fighter_a_model_name,
+                "fighter_b_alias_applied": fighter_b != fighter_b_model_name,
+                "fighter_a_in_fighters": a_url is not None,
+                "fighter_b_in_fighters": b_url is not None,
+                "fighter_a_has_any_snapshot": a_has_any_snapshot,
+                "fighter_b_has_any_snapshot": b_has_any_snapshot,
+                "fighter_a_no_model_history": a_no_model_history,
+                "fighter_b_no_model_history": b_no_model_history,
+                "fighter_a_has_snapshot": a_snapshot is not None,
+                "fighter_b_has_snapshot": b_snapshot is not None,
+                "fighter_a_issue": a_issue,
+                "fighter_b_issue": b_issue,
+                "generic_reason": generic_reason,
+                "action_needed": action_needed,
+                "reason": "; ".join(missing),
             })
 
     return pd.DataFrame(rows)
